@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -21,7 +22,24 @@ type asarEntry struct {
 
 // Ported from https://github.com/GeopJr/asar-cr/blob/cd7695b7c913bf921d9fb6600eaeb1400e3ba225/src/asar-cr/pack.cr#L61
 
+func validatePatcherPath(patcherPath string) error {
+	if !filepath.IsAbs(patcherPath) {
+		return fmt.Errorf("patcher path must be absolute: %s", patcherPath)
+	}
+	info, err := os.Stat(patcherPath)
+	if err != nil {
+		return fmt.Errorf("cannot load patcher: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("patcher is not a regular file: %s", patcherPath)
+	}
+	return nil
+}
+
 func WriteAppAsar(outFile string, patcherPath string) error {
+	if err := validatePatcherPath(patcherPath); err != nil {
+		return err
+	}
 	header := make(map[string]map[string]asarEntry)
 	files := make(map[string]asarEntry)
 	header["files"] = files

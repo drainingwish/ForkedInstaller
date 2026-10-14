@@ -12,12 +12,13 @@ import (
 )
 
 const ReleaseUrl = "https://api.github.com/repos/drainingwish/VencordFork/releases/latest"
+
 // Keep downloads on the fork even when GitHub is rate limited or blocked.
 const ReleaseUrlFallback = ReleaseUrl
-const InstallerReleaseUrl = "https://api.github.com/repos/Vencord/Installer/releases/latest"
-const InstallerReleaseUrlFallback = "https://vencord.dev/releases/installer"
+const InstallerReleaseUrl = "https://api.github.com/repos/drainingwish/ForkedInstaller/releases/latest"
+const InstallerReleaseUrlFallback = InstallerReleaseUrl
 
-var UserAgent = "VencordInstaller/" + buildinfo.InstallerGitHash + " (https://github.com/Vencord/Installer)"
+var UserAgent = "VencordInstaller/" + buildinfo.InstallerGitHash + " (https://github.com/drainingwish/ForkedInstaller)"
 
 var (
 	DiscordGreen        = color.RGBA{0, 133, 69, 0xff}

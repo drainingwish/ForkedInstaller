@@ -25,6 +25,7 @@ func init() {
 	//goland:noinspection GoBoolExpressions
 	if buildinfo.InstallerTag == buildinfo.VersionUnknown {
 		Log.Debug("Disabling self updater as this is not a release build")
+		SelfUpdateCheckDoneChan <- false
 		return
 	}
 
@@ -46,13 +47,13 @@ func init() {
 }
 
 func GetInstallerDownloadLink() string {
-	const BaseUrl = "https://github.com/Vencord/Installer/releases/latest/download/"
+	const BaseUrl = "https://github.com/drainingwish/ForkedInstaller/releases/latest/download/"
 	switch runtime.GOOS {
 	case "windows":
 		filename := Ternary(buildinfo.UiType == buildinfo.UiTypeCli, "VencordInstallerCli.exe", "VencordInstaller.exe")
 		return BaseUrl + filename
 	case "darwin":
-		return BaseUrl + "VencordInstaller.dmg"
+		return BaseUrl + "VencordInstallerCli-darwin"
 	case "linux":
 		return BaseUrl + "VencordInstallerCli-linux"
 	default:
@@ -89,6 +90,9 @@ func UpdateSelf() error {
 		return err
 	}
 	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return fmt.Errorf("failed to download installer update: %s", res.Status)
+	}
 
 	tmp, err := os.CreateTemp(ownExeDir, "VencordInstallerUpdate")
 	if err != nil {
@@ -102,8 +106,12 @@ func UpdateSelf() error {
 		return fmt.Errorf("Failed to chmod 755 %s: %w", tmp.Name(), err)
 	}
 
-	if _, err = io.Copy(tmp, res.Body); err != nil {
+	written, err := io.Copy(tmp, res.Body)
+	if err != nil {
 		return err
+	}
+	if written == 0 {
+		return errors.New("installer update download is empty")
 	}
 
 	if err = tmp.Close(); err != nil {
@@ -145,12 +153,7 @@ func RelaunchSelf() error {
 	attr := new(os.ProcAttr)
 	attr.Files = []*os.File{os.Stdin, os.Stdout, os.Stderr}
 
-	var argv []string
-	if len(os.Args) > 1 {
-		argv = os.Args[1:]
-	} else {
-		argv = []string{}
-	}
+	argv := append([]string{os.Args[0]}, os.Args[1:]...)
 
 	Log.Debug("Restarting self with exe", os.Args[0], "and args", argv)
 

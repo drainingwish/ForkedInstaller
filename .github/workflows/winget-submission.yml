@@ -12,6 +12,7 @@ on:
 
 jobs:
   winget:
+    if: github.repository == 'Vencord/Installer'
     name: Publish winget package
     runs-on: windows-latest
     steps:

@@ -1,0 +1,14 @@
+Cutcord Installer
+Source: https://github.com/drainingwish/ForkedInstaller
+
+This is an independently maintained fork of Vencord Installer.
+Copyright (c) 2023 Vendicated and Vencord contributors.
+Original copyright notices and the GPL license in LICENSE remain in effect.
+
+Changes by drainingwish dated 2026-10-14:
+- Fixed Windows configuration paths and rejected invalid patcher locations.
+- Kept application downloads and installer updates on the fork repositories.
+- Preserved installed files when downloads fail and reported installation errors.
+- Added regression tests and updated release packaging.
+
+Distributed under GPL-3.0, without warranty. See LICENSE for the full terms.

@@ -10,7 +10,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
 	path "path/filepath"
 	"strings"
 )
@@ -20,20 +19,25 @@ var FilesDir string
 var FilesDirErr error
 var Patcher string
 
-func init() {
+func resolveBaseDir() (string, error) {
 	if dir := os.Getenv("VENCORD_USER_DATA_DIR"); dir != "" {
-		Log.Debug("Using VENCORD_USER_DATA_DIR")
-		BaseDir = dir
-	} else if dir = os.Getenv("DISCORD_USER_DATA_DIR"); dir != "" {
-		Log.Debug("Using DISCORD_USER_DATA_DIR/../VencordData")
-		BaseDir = path.Join(dir, "..", "VencordData")
-	} else {
-		Log.Debug("Using UserConfig")
-		configDir := os.Getenv("XDG_CONFIG_HOME")
-		if configDir == "" {
-			configDir = filepath.Join(os.Getenv("HOME"), ".config")
-		}
-		BaseDir = path.Join(configDir, "Vencord")
+		return path.Abs(dir)
+	}
+	if dir := os.Getenv("DISCORD_USER_DATA_DIR"); dir != "" {
+		return path.Abs(path.Join(dir, "..", "VencordData"))
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return path.Abs(path.Join(configDir, "Vencord"))
+}
+
+func init() {
+	BaseDir, FilesDirErr = resolveBaseDir()
+	if FilesDirErr != nil {
+		Log.Error("Failed to resolve configuration directory", FilesDirErr)
+		return
 	}
 	FilesDir = path.Join(BaseDir, "dist")
 	if !ExistsFile(FilesDir) {
@@ -59,6 +63,9 @@ type DiscordInstall struct {
 //region Patch
 
 func patchAppAsar(dir string) (err error) {
+	if err := validatePatcherPath(Patcher); err != nil {
+		return err
+	}
 	appAsar := path.Join(dir, "app.asar")
 	_appAsar := path.Join(dir, "_app.asar")
 
@@ -93,10 +100,13 @@ func patchAppAsar(dir string) (err error) {
 }
 
 func (di *DiscordInstall) patch() error {
+	if FilesDirErr != nil {
+		return FilesDirErr
+	}
 	Log.Info("Patching " + di.path + "...")
 	if LatestHash != InstalledHash {
 		if err := InstallLatestBuilds(); err != nil {
-			return nil // already shown dialog so don't return same error again
+			return err
 		}
 	}
 

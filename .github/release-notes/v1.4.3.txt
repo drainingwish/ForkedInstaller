@@ -1,0 +1,20 @@
+This release fixes the Windows startup crash that said it could not find `.config\Vencord\dist\patcher.js`.
+
+What changed
+
+- The installer now uses the right configuration folder on Windows, even when HOME is not set.
+- It checks the patcher path before changing Discord, so a missing build cannot leave Discord pointing at a file that does not exist.
+- Failed or incomplete downloads leave your current build in place and show an error instead of reporting success.
+- Installer updates and the PowerShell download script now stay on this fork.
+- Existing Vencord settings and the Windows installer filenames are kept for compatibility.
+
+If you hit the startup error, close Discord, run the new installer, and choose Repair for the affected Discord version. Then reopen Discord.
+
+Downloads
+
+- Windows: VencordInstaller.exe is the graphical installer. VencordInstallerCli.exe is the command-line version.
+- Linux: VencordInstallerCli-linux is the x86-64 command-line installer.
+- macOS: VencordInstallerCli-darwin is the universal command-line installer for Intel and Apple Silicon. A macOS graphical installer is not included in this release.
+- SHA256SUMS contains the checksums for the installer downloads.
+
+Based on Vencord Installer, with the original license and contributor credits preserved.

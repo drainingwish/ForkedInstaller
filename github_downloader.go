@@ -15,10 +15,8 @@ import (
 	"net/http"
 	"os"
 	path "path/filepath"
-	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 )
 
 type GithubRelease struct {
@@ -125,7 +123,7 @@ func InitGithubDownloader() {
 	scanner := bufio.NewScanner(f)
 	if scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "// Vencord ") {
+		if strings.HasPrefix(line, "// Vencord ") || strings.HasPrefix(line, "// Cutcord ") {
 			InstalledHash = line[11:]
 			Log.Debug("Existing hash is", InstalledHash)
 		} else {
@@ -134,82 +132,100 @@ func InitGithubDownloader() {
 	}
 }
 
-func installLatestBuilds() (retErr error) {
-	// long error for testing
-	// return errors.New("According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. Yellow, black. Yellow, black. Yellow, black. Yellow, black. Ooh, black and yellow! Let's shake it up a little. Barry! Breakfast is ready! Coming! Hang on a second. Hello? Barry? Adam? Can you believe this is happening? I can't. I'll pick you up. Looking sharp. Use the stairs, Your father paid good money for those. Sorry. I'm excited. Here's the graduate. We're very proud of you, son. A perfect report card, all B's. Very proud. Ma! I got a thing going here. You got lint on your fuzz. Ow! That's me! Wave to us! We'll be in row 118,000. Bye! Barry, I told you, stop flying in the house! Hey, Adam. Hey, Barry. Is that fuzz gel? A little. Special day, graduation. Never thought I'd make it. Three days grade school, three days high school. Those were awkward. Three days college. I'm glad I took a day and hitchhiked around The Hive. You did come back different. Hi, Barry. Artie, growing a mustache? Looks good. Hear about Frankie? Yeah. You going to the funeral? No, I'm not going. Everybody knows, sting someone, you die. Don't waste it on a squirrel. Such a hothead. I guess he could have just gotten out of the way. I love this incorporating an amusement park into our day. That's why we don't need vacations. Boy, quite a bit of pomp under the circumstances. Well, Adam, today we are men. We are! Bee-men. Amen! Hallelujah! Students, faculty, distinguished bees, please welcome Dean Buzzwell.")
-	Log.Debug("Installing latest builds...")
+var requiredBuildFiles = []string{"patcher.js", "preload.js", "renderer.js", "renderer.css"}
 
-	// create an empty package.json file in our files dir.
-	// without this, node will walk up the file tree and search for a package.json in the
-	// parent folders. This might lead to issues if the user for example has ~/package.json
-	// with type: "module" in it
-	pkgJsonFile := path.Join(FilesDir, "package.json")
-	err := os.WriteFile(pkgJsonFile, []byte("{}"), 0644)
-	if err != nil {
-		Log.Warn("Failed to create", pkgJsonFile, err)
-	}
-
-	var wg sync.WaitGroup
-	var downloadedFiles atomic.Uint64
-
-	for _, ass := range ReleaseData.Assets {
-		if strings.HasPrefix(ass.Name, "patcher.js") ||
-			strings.HasPrefix(ass.Name, "preload.js") ||
-			strings.HasPrefix(ass.Name, "renderer.js") ||
-			strings.HasPrefix(ass.Name, "renderer.css") {
-			wg.Add(1)
-			ass := ass // Need to do this to not have the variable be overwritten halfway through
-			go func() {
-				defer wg.Done()
-				Log.Debug("Downloading file", ass.Name)
-
-				res, err := http.Get(ass.DownloadURL)
-				if err == nil && res.StatusCode >= 300 {
-					err = errors.New(res.Status)
-				}
-				if err != nil {
-					Log.Error("Failed to download", ass.Name+":", err)
-					retErr = err
-					return
-				}
-				outFile := path.Join(FilesDir, ass.Name)
-				out, err := os.OpenFile(outFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-				if err != nil {
-					Log.Error("Failed to create", outFile+":", err)
-					retErr = err
-					return
-				}
-				read, err := io.Copy(out, res.Body)
-				if err != nil {
-					Log.Error("Failed to download to", outFile+":", err)
-					retErr = err
-					return
-				}
-				contentLength := res.Header.Get("Content-Length")
-				expected := strconv.FormatInt(read, 10)
-				if expected != contentLength {
-					err = errors.New("Unexpected end of input. Content-Length was " + contentLength + ", but I only read " + expected)
-					Log.Error(err.Error())
-					retErr = err
-					return
-				}
-				downloadedFiles.Add(1)
-			}()
+func isBuildAsset(name string) bool {
+	for _, required := range requiredBuildFiles {
+		if name == required || name == required+".map" || name == required+".LEGAL.txt" {
+			return true
 		}
 	}
+	return false
+}
 
+func downloadBuildAsset(url, destination string) error {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", UserAgent)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return fmt.Errorf("download failed: %s", res.Status)
+	}
+	out, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return err
+	}
+	written, copyErr := io.Copy(out, res.Body)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if written == 0 {
+		return errors.New("downloaded file is empty")
+	}
+	if res.ContentLength >= 0 && written != res.ContentLength {
+		return errors.New("download ended before the complete file was received")
+	}
+	return nil
+}
+
+func installLatestBuilds() error {
+	if FilesDirErr != nil {
+		return FilesDirErr
+	}
+	assets := make(map[string]string)
+	for _, asset := range ReleaseData.Assets {
+		if isBuildAsset(asset.Name) {
+			assets[asset.Name] = asset.DownloadURL
+		}
+	}
+	for _, name := range requiredBuildFiles {
+		if assets[name] == "" {
+			return fmt.Errorf("release is missing required file %s", name)
+		}
+	}
+	staging, err := os.MkdirTemp(FilesDir, ".download-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staging)
+	failures := make(chan error, len(assets))
+	var wg sync.WaitGroup
+	for name, url := range assets {
+		wg.Add(1)
+		go func(name, url string) {
+			defer wg.Done()
+			if err := downloadBuildAsset(url, path.Join(staging, name)); err != nil {
+				failures <- fmt.Errorf("failed to download %s: %w", name, err)
+			}
+		}(name, url)
+	}
 	wg.Wait()
-
-	if retErr != nil {
-		return retErr
+	close(failures)
+	for err := range failures {
+		return err
 	}
-	if downloadedFiles.Load() < 4 {
-		return errors.New("Couldn't find all required files")
+	// Only replace installed files once every download has completed successfully.
+	for name := range assets {
+		if err := os.Rename(path.Join(staging, name), path.Join(FilesDir, name)); err != nil {
+			return err
+		}
 	}
-
-	Log.Debug("Done!")
-	_ = FixOwnership(FilesDir)
-
+	if err := os.WriteFile(path.Join(FilesDir, "package.json"), []byte("{}"), 0644); err != nil {
+		return err
+	}
+	if err := FixOwnership(FilesDir); err != nil {
+		return err
+	}
 	InstalledHash = LatestHash
-	return
+	return nil
 }

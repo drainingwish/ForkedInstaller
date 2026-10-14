@@ -7,6 +7,9 @@ on:
     tags:
       - v*
 
+permissions:
+  contents: write
+
 env:
   VERSION: ${{ github.ref_name }}
 
@@ -31,6 +34,9 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
+
+      - name: Test
+        run: go test -tags cli ./...
 
       - name: Build Cli
         run: make VERSION=${{ env.VERSION }}
@@ -67,31 +73,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Install dependencies
-        run: brew install pkg-config sdl2 create-dmg
+      - name: Test
+        run: go test -tags cli ./...
 
-      - name: Setup Certificates
-        uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7.0.0
-        with:
-          p12-file-base64: ${{ secrets.APPLE_SIGNING_CERT }}
-          p12-password: ${{ secrets.APPLE_SIGNING_CERT_PASSWORD }}
-
-      - name: Build
-        run: |
-          make ARCH=universal
-          make ARCH=universal GUI=1 DMG=1 IDENTITY="${{ secrets.APPLE_IDENTITY_NAME }}" VERSION=${{ env.VERSION }}
-
-      - name: Codesign
-        run: |
-          xcrun notarytool submit build/VencordInstaller.dmg --apple-id "${{ secrets.APPLE_ID_EMAIL }}" --password "${{ secrets.APPLE_ID_PASSWORD }}" --team-id "${{ secrets.APPLE_ID_TEAM }}" --wait
-          xcrun stapler staple build/VencordInstaller.dmg
+      - name: Build universal CLI
+        run: make ARCH=universal VERSION="${{ env.VERSION }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: VencordInstaller-macos
           path: |
-            build/VencordInstaller.dmg
             build/VencordInstallerCli-darwin
 
   build-windows:
@@ -128,13 +120,17 @@ jobs:
         run: |
           export GOROOT=/mingw64/lib/go
           export GOPATH=/mingw64
-          go get -v
+          go mod download
           go install github.com/tc-hib/go-winres@d743268d7ea168077ddd443c4240562d4f5e8c3e  # v0.3.3
+
+      - name: Test
+        shell: msys2 {0}
+        run: go test -tags cli ./...
 
       - name: Build
         shell: msys2 {0}
         run: |
-          make GUI=1 VERSION=${{ env.VERSION }}
+          make ARCH=amd64 GUI=1 VERSION=${{ env.VERSION }}
           make ARCH=386 VERSION=${{ env.VERSION }}
 
       - name: Upload artifact
@@ -167,6 +163,9 @@ jobs:
           name: VencordInstaller-windows
           path: build-windows
 
+      - name: Generate checksums
+        run: sha256sum build-linux/* build-macos/* build-windows/* | sed 's@  [^ ]*/@  @' > SHA256SUMS
+
       - name: Create the release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         env:
@@ -174,8 +173,13 @@ jobs:
         with:
           name: ${{ env.VERSION }}
           prerelease: false
-          draft: true
+          draft: false
+          make_latest: true
+          body_path: .github/release-notes/${{ env.VERSION }}.txt
           files: |
+            LICENSE
+            NOTICE
+            SHA256SUMS
             build-linux/*
             build-macos/*
             build-windows/*
